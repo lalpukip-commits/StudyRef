@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyRef Pro</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #2c3e50; --success: #27ae60; --danger: #e74c3c; --warning: #f39c12; --light: #ecf0f1; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background-color: var(--light); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 100%; max-width: 500px; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2, h3 { color: var(--primary); text-align: center; margin-top: 0; }
+        .datetime { text-align: center; font-size: 0.9em; color: #7f8c8d; margin-bottom: 20px; }
+        input[type="text"] { width: 100%; padding: 12px; margin: 10px 0; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px; }
+        .timer-display { font-size: 2.5em; font-weight: bold; text-align: center; margin: 20px 0; color: var(--primary); }
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        button { padding: 15px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: white; }
+        button:disabled { background-color: #bdc3c7 !important; }
+        .btn-start { background-color: var(--success); grid-column: span 2; }
+        .btn-pause { background-color: var(--warning); }
+        .btn-stop { background-color: var(--danger); }
+        .btn-end-day { background-color: var(--primary); margin-top: 20px; width: 100%; }
+        .btn-toggle-stats { background-color: #34495e; margin-top: 15px; width: 100%; font-size: 14px; }
+        .btn-download { background-color: #8e44ad; margin-top: 10px; width: 100%; display: none; }
+        .break-warning { color: var(--danger); text-align: center; font-weight: bold; display: none; margin-bottom: 10px; }
+        .history-card { background: #f9f9f9; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; border-left: 5px solid var(--success); }
+        .del-btn { background: var(--danger); padding: 5px 8px; width: auto; font-size: 11px; }
+        .chart-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .nav-btn { background: var(--primary); padding: 5px 15px; font-size: 12px; width: auto; }
+        #graph-section { display: none; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>StudyRef Pro</h2>
+    <div id="current-date" class="datetime"></div>
+    <div id="setup-area">
+        <input type="text" id="subject-input" placeholder="Subject Name (Required)">
+        <div class="timer-display" id="main-timer">00:00:00</div>
+        <div id="break-alert" class="break-warning">Break Remaining: 30:00</div>
+        <div class="controls">
+            <button id="start-btn" class="btn-start" disabled>START</button>
+            <button id="pause-btn" class="btn-pause" style="display:none;">PAUSE</button>
+            <button id="stop-btn" class="btn-stop" style="display:none;">STOP</button>
+        </div>
+    </div>
+    <button id="end-day-btn" class="btn-end-day">END DAY SUMMARY</button>
+    <button id="toggle-stats-btn" class="btn-toggle-stats">📊 GRAPHS & STATS</button>
+    <div id="graph-section">
+        <div class="chart-nav"><button class="nav-btn" id="prev-month">←</button><h3 id="month-label" style="margin:0; font-size:1em;">Month</h3><button class="nav-btn" id="next-month">→</button></div>
+        <canvas id="dailyChart" height="200"></canvas>
+        <button id="download-report-btn" class="btn-download">📥 DOWNLOAD MONTHLY REPORT</button>
+        <canvas id="monthlyChart" height="150" style="margin-top:20px;"></canvas>
+    </div>
+    <div id="history-section" style="margin-top: 30px; width: 100%;"><h3>Today's History</h3><div id="session-list"></div></div>
+    <div id="summary-report" style="display:none; margin-top: 20px; border-top: 2px solid #eee; padding-top: 20px;"><h3>Summary</h3><div id="summary-content" style="font-size: 0.9em; line-height: 1.6;"></div><button onclick="location.reload()" class="btn-end-day" style="background:var(--success)">CLOSE</button></div>
+</div>
+<script>
+    let db, dailyChart, monthlyChart;
+    let startTime, pauseTime, breakTotal = 0;
+    let timerInterval, breakInterval;
+    let viewDate = new Date();
+    const BREAK_LIMIT = 30 * 60 * 1000;
+    const format12h = (date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    const formatDMY = (dateStr) => { const d = new Date(dateStr); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`; };
+    const request = indexedDB.open("PublicStudyDB", 1);
+    request.onupgradeneeded = e => { db = e.target.result; if (!db.objectStoreNames.contains("sessions")) { db.createObjectStore("sessions", { keyPath: "id", autoIncrement: true }); } };
+    request.onsuccess = e => { db = e.target.result; displayHistory(); initCharts(); checkDownloadAvailability(); };
+    const subjectInput = document.getElementById('subject-input');
+    const startBtn = document.getElementById('start-btn');
+    const pauseBtn = document.getElementById('pause-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const mainTimer = document.getElementById('main-timer');
+    const breakAlert = document.getElementById('break-alert');
+    subjectInput.oninput = () => startBtn.disabled = subjectInput.value.trim() === "";
+    startBtn.onclick = () => { startTime = Date.now(); startBtn.style.display = 'none'; pauseBtn.style.display = 'inline-block'; stopBtn.style.display = 'inline-block'; subjectInput.disabled = true; timerInterval = setInterval(updateDisplay, 1000); };
+    pauseBtn.onclick = () => { if (pauseBtn.innerText === "PAUSE") { pauseTime = Date.now(); clearInterval(timerInterval); pauseBtn.innerText = "RESUME"; startBreakTracking(); } else { breakTotal += (Date.now() - pauseTime); clearInterval(breakInterval); pauseBtn.innerText = "PAUSE"; timerInterval = setInterval(updateDisplay, 1000); breakAlert.style.display = 'none'; } };
+    function startBreakTracking() { breakInterval = setInterval(() => { let currentBreakMs = breakTotal + (Date.now() - pauseTime); let msRemaining = BREAK_LIMIT - currentBreakMs; let m = Math.floor(msRemaining / 60000); let s = Math.floor((msRemaining % 60000) / 1000); breakAlert.style.display = 'block'; breakAlert.innerText = `Break Remaining: ${m}:${s.toString().padStart(2,'0')}`; if (msRemaining <= 0) stopSession(); }, 1000); }
+    function updateDisplay() { let elapsed = Date.now() - startTime - breakTotal; let h = Math.floor(elapsed / 3600000); let m = Math.floor((elapsed % 3600000) / 60000); let s = Math.floor((elapsed % 60000) / 1000); mainTimer.innerText = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`; }
+    function stopSession() { clearInterval(timerInterval); clearInterval(breakInterval); const duration = (Date.now() - startTime - breakTotal) / 3600000; const tx = db.transaction("sessions", "readwrite"); tx.objectStore("sessions").add({ subject: subjectInput.value, duration: parseFloat(duration.toFixed(2)), date: new Date().toISOString().split('T')[0], range: `${format12h(new Date(startTime))} - ${format12h(new Date())}`, breaks: (breakTotal / 60000).toFixed(0), month: new Date().toLocaleString('default', { month: 'short' }), year: new Date().getFullYear() }); tx.oncomplete = () => location.reload(); }
+    stopBtn.onclick = stopSession;
+    function checkDownloadAvailability() { const today = new Date(); const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate(); if (today.getDate() === lastDay) { document.getElementById('download-report-btn').style.display = 'block'; } }
+    document.getElementById('toggle-stats-btn').onclick = () => { const section = document.getElementById('graph-section'); const isHidden = section.style.display === "none" || section.style.display === ""; section.style.display = isHidden ? "block" : "none"; document.getElementById('toggle-stats-btn').innerText = isHidden ? "⬆️ HIDE STATS" : "📊 GRAPHS & STATS"; if (isHidden) updateGraphData(); };
+    function initCharts() { const ctxDaily = document.getElementById('dailyChart').getContext('2d'); const ctxMonthly = document.getElementById('monthlyChart').getContext('2d'); dailyChart = new Chart(ctxDaily, { type: 'line', data: { labels: [], datasets: [{ label: 'Hours', data: [], borderColor: '#27ae60', tension: 0.3, fill: true, backgroundColor: 'rgba(39, 174, 96, 0.1)' }] } }); monthlyChart = new Chart(ctxMonthly, { type: 'bar', data: { labels: [], datasets: [{ label: 'Monthly Total', data: [], backgroundColor: '#2c3e50' }] } }); }
+    function updateGraphData() { const tx = db.transaction("sessions", "readonly"); tx.objectStore("sessions").getAll().onsuccess = e => { const allData = e.target.result; const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate(); const dailyStats = new Array(daysInMonth).fill(0); allData.forEach(s => { const sDate = new Date(s.date); if(sDate.getMonth() === viewDate.getMonth() && sDate.getFullYear() === viewDate.getFullYear()) dailyStats[sDate.getDate() - 1] += s.duration; }); dailyChart.data.labels = Array.from({length: daysInMonth}, (_, i) => i + 1); dailyChart.data.datasets[0].data = dailyStats; dailyChart.update(); document.getElementById('month-label').innerText = viewDate.toLocaleString('default', { month: 'long', year: 'numeric' }); const monthMap = {}; allData.forEach(s => { const key = `${s.month} ${s.year}`; monthMap[key] = (monthMap[key] || 0) + s.duration; }); monthlyChart.data.labels = Object.keys(monthMap); monthlyChart.data.datasets[0].data = Object.values(monthMap); monthlyChart.update(); }; }
+    document.getElementById('prev-month').onclick = () => { viewDate.setMonth(viewDate.getMonth() - 1); updateGraphData(); };
+    document.getElementById('next-month').onclick = () => { viewDate.setMonth(viewDate.getMonth() + 1); updateGraphData(); };
+    document.getElementById('download-report-btn').onclick = () => { const tx = db.transaction("sessions", "readonly"); tx.objectStore("sessions").getAll().onsuccess = e => { const allData = e.target.result; const monthName = viewDate.toLocaleString('default', { month: 'long' }); let content = `STUDY REPORT: ${monthName} ${viewDate.getFullYear()}\n------------------------------------------------------------\n`; const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate(); let monthTotal = 0; for(let i=1; i<=daysInMonth; i++){ const dateStr = `${viewDate.getFullYear()}-${String(viewDate.getMonth()+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`; const daySessions = allData.filter(s => s.date === dateStr); if(daySessions.length > 0) { let dayTotal = 0; content += `DATE: ${formatDMY(dateStr)}\n`; daySessions.forEach((s, idx) => { content += `  Session ${idx+1}: ${s.subject} | ${s.range} | ${s.duration}h | Break: ${s.breaks}m\n`; dayTotal += s.duration; }); content += `  DAY TOTAL: ${dayTotal.toFixed(2)}h\n\n`; monthTotal += dayTotal; } } content += `MONTH TOTAL: ${monthTotal.toFixed(2)} HOURS`; const blob = new Blob([content], { type: 'text/plain' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `StudyReport_${monthName}.txt`; link.click(); }; };
+    function displayHistory() { const list = document.getElementById('session-list'); const today = new Date().toISOString().split('T')[0]; const tx = db.transaction("sessions", "readonly"); tx.objectStore("sessions").getAll().onsuccess = e => { const sessions = e.target.result.filter(s => s.date === today); list.innerHTML = sessions.length ? "" : "<p style='text-align:center; color:#999'>No sessions today.</p>"; sessions.forEach(s => { const div = document.createElement('div'); div.className = "history-card"; div.innerHTML = `<div><strong>${s.subject}</strong><br>${s.duration}h (${s.range})</div>`; const dBtn = document.createElement('button'); dBtn.className = "del-btn"; dBtn.innerText = "DEL"; dBtn.onclick = () => { if(confirm("Delete session?")) { const dtx = db.transaction("sessions", "readwrite"); dtx.objectStore("sessions").delete(s.id); dtx.oncomplete = () => location.reload(); }}; div.appendChild(dBtn); list.appendChild(div); }); }; }
+    document.getElementById('end-day-btn').onclick = () => { const today = new Date().toISOString().split('T')[0]; const tx = db.transaction("sessions", "readonly"); tx.objectStore("sessions").getAll().onsuccess = e => { const sessions = e.target.result.filter(s => s.date === today); if(!sessions.length) return alert("No sessions today!"); let totalH = 0, totalB = 0, details = ""; sessions.forEach((s, i) => { totalH += s.duration; totalB += parseInt(s.breaks); details += `<p><b>${i+1}. ${s.subject}:</b> ${s.duration}h | ${s.range}</p>`; }); document.getElementById('setup-area').style.display = 'none'; document.getElementById('history-section').style.display = 'none'; document.getElementById('end-day-btn').style.display = 'none'; document.getElementById('toggle-stats-btn').style.display = 'none'; document.getElementById('summary-report').style.display = 'block'; document.getElementById('summary-content').innerHTML = `<b>Date:</b> ${formatDMY(today)}<br><b>Total Study:</b> ${totalH.toFixed(2)}h<br><b>Total Break:</b> ${totalB}m<br>${details}`; }; };
+    document.getElementById('current-date').innerText = new Date().toDateString();
+</script>
+</body>
+</html>
