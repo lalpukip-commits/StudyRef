@@ -7,19 +7,14 @@
   "scope": "/StudyRef/",
   "display": "standalone",
   "orientation": "portrait",
- "icons": [
-  {
-    "src": "app-logo.png",
-    "sizes": "512x512",
-    "type": "image/png",
-    "purpose": "any maskable"
-  }
-]
-      "src": "https://cdn-icons-png.flaticon.com/512/572/572226.png",
+  "icons": [
+    {
+      "src": "app-logo.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     }
+  ],
   "theme_color": "#2c3e50",
   "background_color": "#ecf0f1"
 }
