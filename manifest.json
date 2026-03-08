@@ -5,7 +5,7 @@
   "id": "com.lalpukip.studyref",
   "start_url": "/StudyRef/index.html",
   "scope": "/StudyRef/",
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "portrait",
   "icons": [
     {
