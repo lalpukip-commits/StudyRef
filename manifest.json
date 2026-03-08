@@ -1,15 +1,20 @@
 {
   "short_name": "StudyRef",
   "name": "StudyRef Pro Tracker",
+  "description": "A focused study tracker for competitive exams with local privacy.",
+  "id": "/StudyRef/",
+  "start_url": "/StudyRef/index.html",
+  "scope": "/StudyRef/",
+  "display": "standalone",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "https://cdn-icons-png.flaticon.com/512/572/572226.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
-  "display": "standalone",
   "theme_color": "#2c3e50",
   "background_color": "#ecf0f1"
 }
